@@ -1,0 +1,165 @@
+name: Debug Random Subdomain Mail
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/debug_random_subdomain_mail.yml"
+  workflow_dispatch:
+    inputs:
+      apply_fix:
+        description: "Attempt wildcard DNS fix for *.92easy.com"
+        required: false
+        default: "false"
+
+concurrency:
+  group: debug-random-subdomain-mail-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TARGET_ZONE: 92easy.com
+      TEST_SUBDOMAIN: fh7optqc.92easy.com
+      APPLY_FIX: ${{ github.event.inputs.apply_fix || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check required secrets
+        shell: bash
+        run: |
+          missing=()
+          [[ -z "$CLOUDFLARE_API_TOKEN" ]] && missing+=("CLOUDFLARE_API_TOKEN")
+          [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]] && missing+=("CLOUDFLARE_ACCOUNT_ID")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Resolve zone id
+        id: zone
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone_json="$(curl -fsS --get \
+            "https://api.cloudflare.com/client/v4/zones" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-urlencode "name=$TARGET_ZONE" \
+            --data-urlencode "per_page=1")"
+          echo "$zone_json" | jq .
+          zone_id="$(echo "$zone_json" | jq -r '.result[0].id // empty')"
+          if [ -z "$zone_id" ]; then
+            echo "::error::Zone $TARGET_ZONE not found"
+            exit 1
+          fi
+          echo "zone_id=$zone_id" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect email routing settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone_id="${{ steps.zone.outputs.zone_id }}"
+          for endpoint in \
+            "email/routing" \
+            "email/routing/dns" \
+            "email/routing/rules" \
+            "email/routing/rules/catch_all"
+          do
+            echo "::group::$endpoint"
+            curl -fsS \
+              "https://api.cloudflare.com/client/v4/zones/$zone_id/$endpoint" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" | jq .
+            echo "::endgroup::"
+          done
+
+      - name: Inspect dns records
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone_id="${{ steps.zone.outputs.zone_id }}"
+          echo "::group::zone dns"
+          curl -fsS --get \
+            "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-urlencode "per_page=200" | jq .
+          echo "::endgroup::"
+          echo "::group::dns resolution"
+          dig +short MX "$TARGET_ZONE"
+          dig +short MX "$TEST_SUBDOMAIN" || true
+          dig +short A "$TEST_SUBDOMAIN" || true
+          echo "::endgroup::"
+
+      - name: Attempt wildcard dns fix
+        if: ${{ env.APPLY_FIX == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone_id="${{ steps.zone.outputs.zone_id }}"
+
+          create_or_update_record() {
+            local type="$1"
+            local name="$2"
+            local content="$3"
+            local priority="${4:-}"
+            local body
+            if [ -n "$priority" ]; then
+              body="$(jq -n --arg type "$type" --arg name "$name" --arg content "$content" --argjson priority "$priority" '{type:$type,name:$name,content:$content,priority:$priority,ttl:1}')"
+            else
+              body="$(jq -n --arg type "$type" --arg name "$name" --arg content "$content" '{type:$type,name:$name,content:$content,ttl:1}')"
+            fi
+
+            local existing
+            existing="$(curl -fsS --get \
+              "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-urlencode "type=$type" \
+              --data-urlencode "name=$name")"
+            local record_id
+            if [ -n "$priority" ]; then
+              record_id="$(echo "$existing" | jq -r --arg content "$content" --argjson priority "$priority" '.result[] | select(.content == $content and .priority == $priority) | .id' | head -n1)"
+            else
+              record_id="$(echo "$existing" | jq -r --arg content "$content" '.result[] | select(.content == $content) | .id' | head -n1)"
+            fi
+
+            if [ -n "$record_id" ]; then
+              curl -fsS -X PUT \
+                "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$body" | jq .
+            else
+              curl -fsS -X POST \
+                "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$body" | jq .
+            fi
+          }
+
+          create_or_update_record MX "*.92easy.com" "route1.mx.cloudflare.net" 48
+          create_or_update_record MX "*.92easy.com" "route2.mx.cloudflare.net" 57
+          create_or_update_record MX "*.92easy.com" "route3.mx.cloudflare.net" 70
+          create_or_update_record TXT "*.92easy.com" "v=spf1 include:_spf.mx.cloudflare.net ~all"
+
+      - name: Re-check dns after fix
+        if: ${{ env.APPLY_FIX == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::dns resolution after fix"
+          dig +short MX "$TARGET_ZONE"
+          dig +short MX "$TEST_SUBDOMAIN" || true
+          dig +short A "$TEST_SUBDOMAIN" || true
+          echo "::endgroup::"
