@@ -28,7 +28,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       TARGET_ZONE: 92easy.com
       TEST_SUBDOMAIN: fh7optqc.92easy.com
-      APPLY_FIX: ${{ github.event.inputs.apply_fix || 'false' }}
+      APPLY_FIX_INPUT: ${{ github.event.inputs.apply_fix || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -75,10 +75,12 @@ jobs:
             "email/routing/rules/catch_all"
           do
             echo "::group::$endpoint"
-            curl -fsS \
+            http_code="$(curl -sS -o /tmp/email-routing-response.json -w '%{http_code}' \
               "https://api.cloudflare.com/client/v4/zones/$zone_id/$endpoint" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" | jq .
+              -H "Content-Type: application/json")"
+            echo "http_code=$http_code"
+            cat /tmp/email-routing-response.json | jq . || cat /tmp/email-routing-response.json
             echo "::endgroup::"
           done
 
@@ -101,7 +103,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Attempt wildcard dns fix
-        if: ${{ env.APPLY_FIX == 'true' }}
+        if: ${{ github.event_name == 'push' || env.APPLY_FIX_INPUT == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -154,7 +156,7 @@ jobs:
           create_or_update_record TXT "*.92easy.com" "v=spf1 include:_spf.mx.cloudflare.net ~all"
 
       - name: Re-check dns after fix
-        if: ${{ env.APPLY_FIX == 'true' }}
+        if: ${{ github.event_name == 'push' || env.APPLY_FIX_INPUT == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
