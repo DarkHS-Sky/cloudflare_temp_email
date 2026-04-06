@@ -2,9 +2,17 @@
 # CHANGE LOG
 
 <p align="center">
-  <a href="CHANGELOG.md">🇨🇳 中文</a> |
-  <a href="CHANGELOG_EN.md">🇺🇸 English</a>
+  <a href="CHANGELOG.md">中文</a> |
+  <a href="CHANGELOG_EN.md">English</a>
 </p>
+
+## v1.6.0(main)
+
+### Features
+
+### Bug Fixes
+
+### Improvements
 
 ## v1.5.0(main)
 
@@ -16,6 +24,9 @@
 - feat: |Auto Reply| Add regex matching support for sender filter using `/pattern/` syntax (e.g. `/@example\.com$/`), backward compatible with prefix matching
 - feat: |Turnstile| Add global Turnstile CAPTCHA for all login forms via `ENABLE_GLOBAL_TURNSTILE_CHECK` env var (#767)
 - feat: |Telegram| Support sending email attachments in Telegram push (50MB per file limit), multiple attachments sent via `sendMediaGroup`, controlled by `ENABLE_TG_PUSH_ATTACHMENT` env var (#894)
+- feat: |Mail Storage| Support enabling gzip-compressed email storage via `ENABLE_MAIL_GZIP` variable (#823)
+  - Run database migration before enabling it: `Admin -> Quick Setup -> Database -> Migrate Database`, or call `POST /admin/db_migration`
+  - New emails are stored in `raw_blob` and reads stay compatible with `raw` / `raw_blob`; compression and decompression add CPU overhead, so a paid Worker plan is recommended
 
 ### Bug Fixes
 
