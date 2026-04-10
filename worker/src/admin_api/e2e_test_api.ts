@@ -1,5 +1,9 @@
 import { Context } from 'hono'
-import { getBooleanValue } from '../utils'
+import { getBooleanValue, getJsonSetting, saveSetting } from '../utils'
+
+const E2E_CF_ROUTING_CALLS_KEY = '__e2e_cf_routing_calls__';
+const E2E_CF_ROUTING_FAIL_NEXT_KEY = '__e2e_cf_routing_fail_next__';
+const E2E_CF_ROUTING_FAIL_NEXT_ACTION_KEY = '__e2e_cf_routing_fail_next_action__';
 
 // Direct DB insert — bypasses the email() handler.
 const seedMail = async (c: Context<HonoCustomType>) => {
@@ -59,4 +63,148 @@ const receiveMail = async (c: Context<HonoCustomType>) => {
     return c.json({ success: !state.rejected, replyCalled: state.replyCalled, ...(state.rejected ? { rejected: state.rejected } : {}) });
 };
 
-export default { seedMail, receiveMail };
+const resetAddressData = async (c: Context<HonoCustomType>) => {
+    if (!getBooleanValue(c.env.E2E_TEST_MODE)) {
+        return c.text("Not available", 404);
+    }
+    await c.env.DB.batch([
+        c.env.DB.prepare(`DELETE FROM raw_mails`),
+        c.env.DB.prepare(`DELETE FROM sendbox`),
+        c.env.DB.prepare(`DELETE FROM auto_reply_mails`),
+        c.env.DB.prepare(`DELETE FROM address_sender`),
+        c.env.DB.prepare(`DELETE FROM users_address`),
+        c.env.DB.prepare(`DELETE FROM managed_random_subdomains`),
+        c.env.DB.prepare(`DELETE FROM address`),
+    ]);
+    return c.json({ success: true });
+};
+
+const resetCloudflareEmailRoutingMock = async (c: Context<HonoCustomType>) => {
+    if (!getBooleanValue(c.env.E2E_TEST_MODE)) {
+        return c.text("Not available", 404);
+    }
+    await saveSetting(c, E2E_CF_ROUTING_CALLS_KEY, JSON.stringify([]));
+    await saveSetting(c, E2E_CF_ROUTING_FAIL_NEXT_KEY, JSON.stringify(false));
+    await saveSetting(c, E2E_CF_ROUTING_FAIL_NEXT_ACTION_KEY, JSON.stringify(null));
+    return c.json({ success: true });
+};
+
+const getCloudflareEmailRoutingCalls = async (c: Context<HonoCustomType>) => {
+    if (!getBooleanValue(c.env.E2E_TEST_MODE)) {
+        return c.text("Not available", 404);
+    }
+    const calls = await getJsonSetting<any[]>(c, E2E_CF_ROUTING_CALLS_KEY) || [];
+    return c.json({ calls });
+};
+
+const setCloudflareEmailRoutingMockFailure = async (c: Context<HonoCustomType>) => {
+    if (!getBooleanValue(c.env.E2E_TEST_MODE)) {
+        return c.text("Not available", 404);
+    }
+    const { failNext, action } = await c.req.json();
+    const normalizedAction = action === 'enable' || action === 'disable' ? action : null;
+    await saveSetting(c, E2E_CF_ROUTING_FAIL_NEXT_KEY, JSON.stringify(!!failNext));
+    await saveSetting(c, E2E_CF_ROUTING_FAIL_NEXT_ACTION_KEY, JSON.stringify(normalizedAction));
+    return c.json({ success: true, failNext: !!failNext, action: normalizedAction });
+};
+
+const shouldFailCloudflareEmailRoutingAction = async (
+    c: Context<HonoCustomType>,
+    action: 'enable' | 'disable',
+): Promise<boolean> => {
+    const failNext = await getJsonSetting<boolean>(c, E2E_CF_ROUTING_FAIL_NEXT_KEY);
+    if (!failNext) {
+        return false;
+    }
+    const failNextAction = await getJsonSetting<'enable' | 'disable' | null>(
+        c,
+        E2E_CF_ROUTING_FAIL_NEXT_ACTION_KEY,
+    );
+    if (failNextAction && failNextAction !== action) {
+        return false;
+    }
+    await saveSetting(c, E2E_CF_ROUTING_FAIL_NEXT_KEY, JSON.stringify(false));
+    await saveSetting(c, E2E_CF_ROUTING_FAIL_NEXT_ACTION_KEY, JSON.stringify(null));
+    return true;
+};
+
+const recordCloudflareEmailRoutingCall = async (
+    c: Context<HonoCustomType>,
+    action: 'enable' | 'disable',
+    body: Record<string, unknown>,
+) => {
+    const calls = await getJsonSetting<any[]>(c, E2E_CF_ROUTING_CALLS_KEY) || [];
+    calls.push({
+        action,
+        zoneId: c.req.param('zoneId'),
+        authorization: c.req.header('authorization') || '',
+        body,
+    });
+    await saveSetting(c, E2E_CF_ROUTING_CALLS_KEY, JSON.stringify(calls));
+};
+
+const buildCloudflareEmailRoutingMockFailureResponse = (action: 'enable' | 'disable') => ({
+    success: false,
+    errors: [{ code: 5000, message: `Mock Cloudflare Email Routing ${action} failure` }],
+    messages: [],
+    result: null,
+});
+
+const mockCloudflareEmailRoutingEnable = async (c: Context<HonoCustomType>) => {
+    if (!getBooleanValue(c.env.E2E_TEST_MODE)) {
+        return c.text("Not available", 404);
+    }
+    const body = await c.req.json();
+    await recordCloudflareEmailRoutingCall(c, 'enable', body);
+
+    if (await shouldFailCloudflareEmailRoutingAction(c, 'enable')) {
+        return c.json(buildCloudflareEmailRoutingMockFailureResponse('enable'), 500);
+    }
+
+    return c.json({
+        success: true,
+        errors: [],
+        messages: [],
+        result: {
+            id: `mock-${Date.now()}`,
+            name: body?.name || '',
+            enabled: true,
+            status: 'ready',
+        },
+    });
+};
+
+const mockCloudflareEmailRoutingDisable = async (c: Context<HonoCustomType>) => {
+    if (!getBooleanValue(c.env.E2E_TEST_MODE)) {
+        return c.text("Not available", 404);
+    }
+    const body = await c.req.json();
+    await recordCloudflareEmailRoutingCall(c, 'disable', body);
+
+    if (await shouldFailCloudflareEmailRoutingAction(c, 'disable')) {
+        return c.json(buildCloudflareEmailRoutingMockFailureResponse('disable'), 500);
+    }
+
+    return c.json({
+        success: true,
+        errors: [],
+        messages: [],
+        result: {
+            id: `mock-disable-${Date.now()}`,
+            name: body?.name || '',
+            enabled: false,
+            status: 'disabled',
+        },
+    });
+};
+
+export default {
+    seedMail,
+    receiveMail,
+    resetAddressData,
+    resetCloudflareEmailRoutingMock,
+    getCloudflareEmailRoutingCalls,
+    setCloudflareEmailRoutingMockFailure,
+    mockCloudflareEmailRoutingEnable,
+    mockCloudflareEmailRoutingDisable,
+};

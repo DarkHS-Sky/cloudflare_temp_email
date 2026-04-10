@@ -31,6 +31,16 @@ CREATE INDEX IF NOT EXISTS idx_address_updated_at ON address(updated_at);
 
 CREATE INDEX IF NOT EXISTS idx_address_source_meta ON address(source_meta);
 
+CREATE TABLE IF NOT EXISTS managed_random_subdomains (
+    subdomain TEXT PRIMARY KEY,
+    base_domain TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_managed_random_subdomains_base_domain
+    ON managed_random_subdomains(base_domain);
+
 CREATE TABLE IF NOT EXISTS auto_reply_mails (
     id INTEGER PRIMARY KEY,
     source_prefix TEXT,

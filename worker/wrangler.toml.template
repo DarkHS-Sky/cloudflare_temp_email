@@ -57,6 +57,14 @@ DOMAINS = ["xxx.xxx1" , "xxx.xxx2"] # all domain names
 # e.g. name@abc.com => name@r4nd0m.abc.com
 # RANDOM_SUBDOMAIN_DOMAINS = ["abc.com"]
 # RANDOM_SUBDOMAIN_LENGTH = 8
+# Optional: automatically enable each generated random subdomain in Cloudflare Email Routing.
+# Requires either a Cloudflare API token or a legacy Global API Key plus a base-domain -> zone-id map.
+# CF_EMAIL_ROUTING_API_TOKEN = ""
+# CF_EMAIL_ROUTING_AUTH_EMAIL = "you@example.com"
+# CF_EMAIL_ROUTING_GLOBAL_API_KEY = ""
+# CF_EMAIL_ROUTING_ZONE_MAP = "{\"abc.com\":\"<cloudflare-zone-id>\"}"
+# Optional override for testing or proxying Cloudflare API calls.
+# CF_EMAIL_ROUTING_API_BASE_URL = "https://api.cloudflare.com/client/v4"
 # For chinese domain name, you can use DOMAIN_LABELS to show chinese domain name
 # DOMAIN_LABELS = ["中文.xxx", "xxx.xxx2"]
 # USER_DEFAULT_ROLE = "vip" # default role for new users(only when enable mail verification)

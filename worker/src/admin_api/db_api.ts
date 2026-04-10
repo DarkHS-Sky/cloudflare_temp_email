@@ -36,6 +36,15 @@ CREATE INDEX IF NOT EXISTS idx_address_updated_at ON address(updated_at);
 
 CREATE INDEX IF NOT EXISTS idx_address_source_meta ON address(source_meta);
 
+CREATE TABLE IF NOT EXISTS managed_random_subdomains (
+    subdomain TEXT PRIMARY KEY,
+    base_domain TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_managed_random_subdomains_base_domain ON managed_random_subdomains(base_domain);
+
 CREATE TABLE IF NOT EXISTS auto_reply_mails (
     id INTEGER PRIMARY KEY,
     source_prefix TEXT,
@@ -183,6 +192,21 @@ export default {
         if (version && version <= "v0.0.5") {
             // migration to v0.0.6: add message_id index on raw_mails
             await c.env.DB.exec(`CREATE INDEX IF NOT EXISTS idx_raw_mails_message_id ON raw_mails(message_id);`);
+        }
+        if (version && version <= "v0.0.6") {
+            // migration to v0.0.7: track managed random subdomains explicitly
+            await c.env.DB.exec(`
+                CREATE TABLE IF NOT EXISTS managed_random_subdomains (
+                    subdomain TEXT PRIMARY KEY,
+                    base_domain TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+            await c.env.DB.exec(`
+                CREATE INDEX IF NOT EXISTS idx_managed_random_subdomains_base_domain
+                ON managed_random_subdomains(base_domain);
+            `);
         }
         if (version != CONSTANTS.DB_VERSION) {
             // remove all \r and \n characters from the query string

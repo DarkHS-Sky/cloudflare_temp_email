@@ -7,6 +7,7 @@ import { unbindTelegramByAddress } from './telegram_api/common';
 import { CONSTANTS } from './constants';
 import { AddressCreationSettings, AdminWebhookSettings, WebhookMail, WebhookSettings } from './models';
 import i18n from './i18n';
+import { disableRandomSubdomainEmailRouting, ensureRandomSubdomainEmailRouting, isCloudflareEmailRoutingProvisionError } from './cloudflare_email_routing';
 
 const DEFAULT_NAME_REGEX = /[^a-z0-9]/g;
 const DEFAULT_RANDOM_SUBDOMAIN_LENGTH = 8;
@@ -191,6 +192,78 @@ const findMatchedAllowedDomain = (
             });
         });
     return matchedDomain || null;
+}
+
+const splitAddressValue = (
+    address: string,
+): { localPart: string, domain: string } | null => {
+    const separatorIndex = address.lastIndexOf('@');
+    if (separatorIndex <= 0 || separatorIndex >= address.length - 1) {
+        return null;
+    }
+    return {
+        localPart: address.slice(0, separatorIndex),
+        domain: normalizeDomainValue(address.slice(separatorIndex + 1)),
+    };
+}
+
+const getAddressDomain = (
+    address: string,
+): string | null => {
+    const parsedAddress = splitAddressValue(address);
+    if (!parsedAddress) {
+        return null;
+    }
+    return parsedAddress.domain;
+}
+
+const registerManagedRandomSubdomain = async (
+    c: Context<HonoCustomType>,
+    addressDomain: string,
+    baseDomain: string,
+): Promise<void> => {
+    await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO managed_random_subdomains `
+        + `(subdomain, base_domain, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`
+    ).bind(addressDomain, baseDomain).run();
+    await c.env.DB.prepare(
+        `UPDATE managed_random_subdomains SET updated_at = datetime('now') WHERE subdomain = ?`
+    ).bind(addressDomain).run();
+}
+
+const deleteManagedRandomSubdomainIfUnused = async (
+    c: Context<HonoCustomType>,
+    addressDomain: string,
+): Promise<void> => {
+    const remainingAddressCount = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM address WHERE lower(substr(name, instr(name, '@') + 1)) = ?`
+    ).bind(addressDomain).first<number>('count');
+    if ((remainingAddressCount || 0) > 0) {
+        return;
+    }
+    await c.env.DB.prepare(
+        `DELETE FROM managed_random_subdomains WHERE subdomain = ?`
+    ).bind(addressDomain).run();
+}
+
+const getManagedRandomSubdomainInfo = async (
+    c: Context<HonoCustomType>,
+    address: string,
+): Promise<{ addressDomain: string, baseDomain: string } | null> => {
+    const addressDomain = getAddressDomain(address);
+    if (!addressDomain) {
+        return null;
+    }
+    const managedSubdomain = await c.env.DB.prepare(
+        `SELECT subdomain, base_domain FROM managed_random_subdomains WHERE subdomain = ?`
+    ).bind(addressDomain).first<{ subdomain: string, base_domain: string }>();
+    if (!managedSubdomain?.subdomain || !managedSubdomain.base_domain) {
+        return null;
+    }
+    return {
+        addressDomain: managedSubdomain.subdomain,
+        baseDomain: managedSubdomain.base_domain,
+    };
 }
 
 const checkNameRegex = (c: Context<HonoCustomType>, name: string) => {
@@ -402,6 +475,25 @@ export const newAddress = async (
                 throw new Error(msgs.FailedCreateAddressMsg);
             }
 
+            try {
+                if (enableRandomSubdomain) {
+                    await registerManagedRandomSubdomain(c, addressDomain, domain);
+                    await ensureRandomSubdomainEmailRouting(c, addressDomain, domain);
+                }
+            } catch (error) {
+                try {
+                    await c.env.DB.prepare(
+                        `DELETE FROM address WHERE id = ?`
+                    ).bind(address_id).run();
+                    if (enableRandomSubdomain) {
+                        await deleteManagedRandomSubdomainIfUnused(c, addressDomain);
+                    }
+                } catch (cleanupError) {
+                    console.error('cleanup random subdomain address after Cloudflare Email Routing failure', cleanupError);
+                }
+                throw error;
+            }
+
             // 如果启用地址密码功能，自动生成密码
             const generatedPassword = await generatePasswordForAddress(c, address);
 
@@ -423,6 +515,9 @@ export const newAddress = async (
                     continue;
                 }
                 throw new Error(msgs.AddressAlreadyExistsMsg)
+            }
+            if (isCloudflareEmailRoutingProvisionError(e)) {
+                throw e;
             }
             throw new Error(msgs.FailedCreateAddressMsg)
         }
@@ -509,85 +604,142 @@ const batchDeleteAddressWithData = async (
     c: Context<HonoCustomType>,
     addressQueryCondition: string,
 ): Promise<boolean> => {
-    await c.env.DB.prepare(
-        `DELETE FROM raw_mails WHERE address IN ( ` +
-        `SELECT name FROM address WHERE ${addressQueryCondition})`
-    ).run();
-    await c.env.DB.prepare(
-        `DELETE FROM sendbox WHERE address IN ( ` +
-        `SELECT name FROM address WHERE ${addressQueryCondition})`
-    ).run();
-    await c.env.DB.prepare(
-        `DELETE FROM auto_reply_mails WHERE address IN ( ` +
-        `SELECT name FROM address WHERE ${addressQueryCondition})`
-    ).run();
-    await c.env.DB.prepare(
-        `DELETE FROM address_sender WHERE address IN ( ` +
-        `SELECT name FROM address WHERE ${addressQueryCondition})`
-    ).run();
-    await c.env.DB.prepare(
-        `DELETE FROM users_address WHERE address_id IN ( ` +
-        `SELECT id FROM address WHERE ${addressQueryCondition})`
-    ).run();
-    // delete address
-    await c.env.DB.prepare(`
-        DELETE FROM address WHERE ${addressQueryCondition}`
-    ).run();
+    const { results } = await c.env.DB.prepare(
+        `SELECT id, name FROM address WHERE ${addressQueryCondition} ORDER BY id ASC`
+    ).all<{ id: number, name: string }>();
+    const failedAddresses = [] as { address: string, error: string }[];
+    for (const addressRecord of results || []) {
+        try {
+            await deleteAddressWithData(c, addressRecord.name, addressRecord.id, {
+                skipUserDeleteEnabledCheck: true,
+            });
+        } catch (error) {
+            failedAddresses.push({
+                address: addressRecord.name,
+                error: (error as Error).message || 'unknown error',
+            });
+            console.error('batch delete address failed', addressRecord.name, error);
+        }
+    }
+    if (failedAddresses.length > 0) {
+        console.error('batch delete address partial failures', failedAddresses);
+        throw new Error(
+            failedAddresses
+                .map((item) => `${item.address}: ${item.error}`)
+                .join('; ')
+        );
+    }
     return true;
 }
 
+type DeleteAddressWithDataOptions = {
+    skipUserDeleteEnabledCheck?: boolean,
+}
+
+const resolveAddressRecord = async (
+    c: Context<HonoCustomType>,
+    address: string | undefined | null,
+    address_id: number | undefined | null,
+): Promise<{ address: string, addressId: number }> => {
+    let resolvedAddress = address;
+    let resolvedAddressId = address_id;
+    if (!resolvedAddressId) {
+        resolvedAddressId = await c.env.DB.prepare(
+            `SELECT id FROM address where name = ?`
+        ).bind(resolvedAddress).first<number>("id");
+    } else if (!resolvedAddress) {
+        resolvedAddress = await c.env.DB.prepare(
+            `SELECT name FROM address where id = ?`
+        ).bind(resolvedAddressId).first<string>("name");
+    }
+    if (!resolvedAddress || !resolvedAddressId) {
+        throw new Error(i18n.getMessagesbyContext(c).AddressNotFoundMsg);
+    }
+    return {
+        address: resolvedAddress,
+        addressId: resolvedAddressId,
+    };
+}
+
+const hasSiblingAddressUsingDomain = async (
+    c: Context<HonoCustomType>,
+    addressDomain: string,
+    currentAddressId: number,
+): Promise<boolean> => {
+    const siblingCount = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM address `
+        + `WHERE lower(substr(name, instr(name, '@') + 1)) = ? AND id != ?`
+    ).bind(addressDomain, currentAddressId).first<number>('count');
+    return (siblingCount || 0) > 0;
+}
+
+const deleteResolvedAddressWithData = async (
+    c: Context<HonoCustomType>,
+    resolvedAddress: { address: string, addressId: number },
+): Promise<boolean> => {
+    const msgs = i18n.getMessagesbyContext(c);
+    const randomSubdomainInfo = await getManagedRandomSubdomainInfo(c, resolvedAddress.address);
+    if (randomSubdomainInfo) {
+        const hasSiblingAddress = await hasSiblingAddressUsingDomain(
+            c,
+            randomSubdomainInfo.addressDomain,
+            resolvedAddress.addressId,
+        );
+        if (!hasSiblingAddress) {
+            await disableRandomSubdomainEmailRouting(
+                c,
+                randomSubdomainInfo.addressDomain,
+                randomSubdomainInfo.baseDomain,
+            );
+        }
+    }
+
+    await unbindTelegramByAddress(c, resolvedAddress.address);
+
+    const deleteResults = await c.env.DB.batch([
+        c.env.DB.prepare(
+            `DELETE FROM raw_mails WHERE address = ? `
+        ).bind(resolvedAddress.address),
+        c.env.DB.prepare(
+            `DELETE FROM address_sender WHERE address = ? `
+        ).bind(resolvedAddress.address),
+        c.env.DB.prepare(
+            `DELETE FROM sendbox WHERE address = ? `
+        ).bind(resolvedAddress.address),
+        c.env.DB.prepare(
+            `DELETE FROM users_address WHERE address_id = ? `
+        ).bind(resolvedAddress.addressId),
+        c.env.DB.prepare(
+            `DELETE FROM auto_reply_mails WHERE address = ? `
+        ).bind(resolvedAddress.address),
+        c.env.DB.prepare(
+            `DELETE FROM address WHERE name = ? `
+        ).bind(resolvedAddress.address),
+    ]);
+    if (deleteResults.some((result) => !result.success)) {
+        throw new Error(msgs.OperationFailedMsg)
+    }
+    if (randomSubdomainInfo) {
+        await deleteManagedRandomSubdomainIfUnused(c, randomSubdomainInfo.addressDomain);
+    }
+    return true;
+}
 
 export const deleteAddressWithData = async (
     c: Context<HonoCustomType>,
     address: string | undefined | null,
-    address_id: number | undefined | null
+    address_id: number | undefined | null,
+    options: DeleteAddressWithDataOptions = {},
 ): Promise<boolean> => {
     const msgs = i18n.getMessagesbyContext(c);
-    if (!getBooleanValue(c.env.ENABLE_USER_DELETE_EMAIL)) {
+    if (!options.skipUserDeleteEnabledCheck && !getBooleanValue(c.env.ENABLE_USER_DELETE_EMAIL)) {
         throw new Error(msgs.UserDeleteEmailDisabledMsg)
     }
     if (!address && !address_id) {
         throw new Error(msgs.RequiredFieldMsg)
     }
-    // get address_id or address
-    if (!address_id) {
-        address_id = await c.env.DB.prepare(
-            `SELECT id FROM address where name = ?`
-        ).bind(address).first<number>("id");
-    } else if (!address) {
-        address = await c.env.DB.prepare(
-            `SELECT name FROM address where id = ?`
-        ).bind(address_id).first<string>("name");
-    }
-    // check address again
-    if (!address || !address_id) {
-        throw new Error(msgs.AddressNotFoundMsg);
-    }
-    // unbind telegram
-    await unbindTelegramByAddress(c, address);
-    // delete address and related data
-    const { success: mailSuccess } = await c.env.DB.prepare(
-        `DELETE FROM raw_mails WHERE address = ? `
-    ).bind(address).run();
-    const { success: sendAccess } = await c.env.DB.prepare(
-        `DELETE FROM address_sender WHERE address = ? `
-    ).bind(address).run();
-    const { success: sendboxSuccess } = await c.env.DB.prepare(
-        `DELETE FROM sendbox WHERE address = ? `
-    ).bind(address).run();
-    const { success: addressSuccess } = await c.env.DB.prepare(
-        `DELETE FROM users_address WHERE address_id = ? `
-    ).bind(address_id).run();
-    const { success: autoReplySuccess } = await c.env.DB.prepare(
-        `DELETE FROM auto_reply_mails WHERE address = ? `
-    ).bind(address).run();
-    const { success } = await c.env.DB.prepare(
-        `DELETE FROM address WHERE name = ? `
-    ).bind(address).run();
-    if (!success || !mailSuccess || !sendboxSuccess || !addressSuccess || !sendAccess || !autoReplySuccess) {
-        throw new Error(msgs.OperationFailedMsg)
-    }
-    return true;
+    const resolvedAddress = await resolveAddressRecord(c, address, address_id);
+    return await deleteResolvedAddressWithData(c, resolvedAddress);
 }
 
 export const handleListQuery = async (

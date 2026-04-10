@@ -3,7 +3,7 @@ import { Jwt } from 'hono/utils/jwt'
 
 import i18n from '../i18n'
 import { sendAdminInternalMail, getJsonSetting, saveSetting, getUserRoles, getBooleanValue, hashPassword } from '../utils'
-import { newAddress, handleListQuery, getAddressCreationSettings, getAddressCreationSubdomainMatchStatus } from '../common'
+import { newAddress, handleListQuery, getAddressCreationSettings, getAddressCreationSubdomainMatchStatus, deleteAddressWithData } from '../common'
 import { CONSTANTS } from '../constants'
 import cleanup_api from './cleanup_api'
 import admin_user_api from './admin_user_api'
@@ -120,30 +120,12 @@ api.post('/admin/new_address', async (c) => {
 })
 
 api.delete('/admin/delete_address/:id', async (c) => {
-    const msgs = i18n.getMessagesbyContext(c);
     const { id } = c.req.param();
-    const { success } = await c.env.DB.prepare(
-        `DELETE FROM address WHERE id = ? `
-    ).bind(id).run();
-    if (!success) {
-        return c.text(msgs.OperationFailedMsg, 500)
-    }
-    const { success: mailSuccess } = await c.env.DB.prepare(
-        `DELETE FROM raw_mails WHERE address IN`
-        + ` (select name from address where id = ?) `
-    ).bind(id).run();
-    if (!mailSuccess) {
-        return c.text(msgs.OperationFailedMsg, 500)
-    }
-    const { success: sendAccess } = await c.env.DB.prepare(
-        `DELETE FROM address_sender WHERE address IN`
-        + ` (select name from address where id = ?) `
-    ).bind(id).run();
-    const { success: usersAddressSuccess } = await c.env.DB.prepare(
-        `DELETE FROM users_address WHERE address_id = ?`
-    ).bind(id).run();
+    const success = await deleteAddressWithData(c, null, Number(id), {
+        skipUserDeleteEnabledCheck: true,
+    });
     return c.json({
-        success: success && mailSuccess && sendAccess && usersAddressSuccess
+        success
     })
 })
 
@@ -471,3 +453,9 @@ api.post("/admin/ai_extract/settings", ai_extract_settings.saveAiExtractSettings
 // E2E test endpoints
 api.post('/admin/test/seed_mail', e2e_test_api.seedMail);
 api.post('/admin/test/receive_mail', e2e_test_api.receiveMail);
+api.post('/admin/test/reset_addresses', e2e_test_api.resetAddressData);
+api.post('/admin/test/cloudflare_email_routing/reset', e2e_test_api.resetCloudflareEmailRoutingMock);
+api.get('/admin/test/cloudflare_email_routing/calls', e2e_test_api.getCloudflareEmailRoutingCalls);
+api.post('/admin/test/cloudflare_email_routing/fail_next', e2e_test_api.setCloudflareEmailRoutingMockFailure);
+api.post('/admin/test/cloudflare_api/zones/:zoneId/email/routing/enable', e2e_test_api.mockCloudflareEmailRoutingEnable);
+api.post('/admin/test/cloudflare_api/zones/:zoneId/email/routing/disable', e2e_test_api.mockCloudflareEmailRoutingDisable);

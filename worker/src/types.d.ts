@@ -28,6 +28,11 @@ type Bindings = {
     ENABLE_CREATE_ADDRESS_SUBDOMAIN_MATCH: string | boolean | undefined
     RANDOM_SUBDOMAIN_DOMAINS: string | string[] | undefined
     RANDOM_SUBDOMAIN_LENGTH: string | number | undefined
+    CF_EMAIL_ROUTING_API_BASE_URL: string | undefined
+    CF_EMAIL_ROUTING_API_TOKEN: string | undefined
+    CF_EMAIL_ROUTING_AUTH_EMAIL: string | undefined
+    CF_EMAIL_ROUTING_GLOBAL_API_KEY: string | undefined
+    CF_EMAIL_ROUTING_ZONE_MAP: string | object | undefined
     DISABLE_CUSTOM_ADDRESS_NAME: string | boolean | undefined
     CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST: string | boolean | undefined
     ADMIN_USER_ROLE: string | undefined
