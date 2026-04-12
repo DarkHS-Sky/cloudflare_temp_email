@@ -2,8 +2,11 @@ name: Deploy Docs
 
 on:
   push:
+    branches:
+      - 92easy-prod
     paths:
       - "vitepress-docs/**"
+      - ".github/workflows/docs_deploy.yml"
     tags:
       - "*"
   workflow_dispatch:

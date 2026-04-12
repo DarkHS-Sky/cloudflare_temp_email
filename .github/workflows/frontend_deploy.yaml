@@ -1,12 +1,14 @@
 name: Deploy Frontend
 
 on:
-  workflow_run:
-    workflows: [Upstream Sync]
-    types: [completed]
   push:
+    branches:
+      - 92easy-prod
     tags:
       - "*"
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend_deploy.yaml"
   workflow_dispatch:
 
 jobs:

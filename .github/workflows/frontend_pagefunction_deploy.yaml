@@ -1,12 +1,15 @@
 name: Deploy Frontend with page function
 
 on:
-  workflow_run:
-    workflows: [Upstream Sync]
-    types: [completed]
   push:
+    branches:
+      - 92easy-prod
     tags:
       - "*"
+    paths:
+      - "frontend/**"
+      - "pages/**"
+      - ".github/workflows/frontend_pagefunction_deploy.yaml"
   workflow_dispatch:
 
 jobs:
