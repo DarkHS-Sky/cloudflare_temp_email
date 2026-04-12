@@ -113,7 +113,9 @@ test.describe('Random Subdomain Email Routing', () => {
 
     expect(callsBody).toHaveLength(1);
     expect(callsBody[0]).toMatchObject({
-      action: 'enable',
+      action: 'provision_dns',
+      phase: 'enable',
+      method: 'POST',
       zoneId: 'test-zone-id',
       authorization: 'Bearer e2e-cloudflare-token',
       body: {
@@ -149,7 +151,7 @@ test.describe('Random Subdomain Email Routing', () => {
     expect(queryBody.results).toHaveLength(0);
   });
 
-  test('deleting the last random subdomain address disables Cloudflare Email Routing', async ({ request }) => {
+  test('deleting the last random subdomain address cleans up Cloudflare Email Routing and DNS records', async ({ request }) => {
     const name = `routingdelete${Date.now()}`;
     const createRes = await request.post(`${WORKER_URL_SUBDOMAIN}/api/new_address`, {
       data: { name, domain: TEST_DOMAIN, enableRandomSubdomain: true },
@@ -165,13 +167,38 @@ test.describe('Random Subdomain Email Routing', () => {
     expect(deleteRes.ok()).toBe(true);
 
     const calls = await listCloudflareRoutingCalls(request);
-    expect(calls).toHaveLength(2);
+    expect(calls.map((call: any) => call.action)).toEqual([
+      'provision_dns',
+      'unlock_dns',
+      'disable_subdomain',
+      'list_dns_records',
+      'delete_dns_record',
+      'delete_dns_record',
+      'delete_dns_record',
+    ]);
     expect(calls[1]).toMatchObject({
-      action: 'disable',
+      action: 'unlock_dns',
+      phase: 'disable',
       zoneId: 'test-zone-id',
       authorization: 'Bearer e2e-cloudflare-token',
       body: {
         name: domainPart,
+      },
+    });
+    expect(calls[2]).toMatchObject({
+      action: 'disable_subdomain',
+      zoneId: 'test-zone-id',
+      authorization: 'Bearer e2e-cloudflare-token',
+      body: {
+        name: domainPart,
+      },
+    });
+    expect(calls[3]).toMatchObject({
+      action: 'list_dns_records',
+      method: 'GET',
+      query: {
+        name: domainPart,
+        per_page: '100',
       },
     });
 
@@ -205,7 +232,7 @@ test.describe('Random Subdomain Email Routing', () => {
       expect(deleteRes.ok()).toBe(true);
 
       const calls = await listCloudflareRoutingCalls(request);
-      expect(calls.filter((call: any) => call.action === 'disable')).toHaveLength(0);
+      expect(calls.filter((call: any) => call.phase === 'disable')).toHaveLength(0);
 
       const secondAddressQuery = await queryAddresses(request, secondBody.address);
       expect(secondAddressQuery.results).toHaveLength(1);
@@ -228,13 +255,9 @@ test.describe('Random Subdomain Email Routing', () => {
     expect(deleteRes.ok()).toBe(true);
 
     const calls = await listCloudflareRoutingCalls(request);
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toMatchObject({
-      action: 'disable',
-      body: {
-        name: domainPart,
-      },
-    });
+    expect(calls.some((call: any) => call.action === 'unlock_dns' && call.body?.name === domainPart)).toBe(true);
+    expect(calls.some((call: any) => call.action === 'disable_subdomain' && call.body?.name === domainPart)).toBe(true);
+    expect(calls.filter((call: any) => call.action === 'delete_dns_record')).toHaveLength(3);
   });
 
   test('deleting a manually created subdomain address does not trigger Cloudflare cleanup', async ({ request }) => {
@@ -273,6 +296,34 @@ test.describe('Random Subdomain Email Routing', () => {
     });
     expect(deleteRes.ok()).toBe(false);
     expect(await deleteRes.text()).toContain('Cloudflare Email Routing');
+
+    const queryBody = await queryAddresses(request, body.address);
+    expect(queryBody.results).toHaveLength(1);
+  });
+
+  test('delete cleanup rollback reprovisions the subdomain when DNS record deletion fails', async ({ request }) => {
+    const name = `routingrollback${Date.now()}`;
+    const createRes = await request.post(`${WORKER_URL_SUBDOMAIN}/api/new_address`, {
+      data: { name, domain: TEST_DOMAIN, enableRandomSubdomain: true },
+    });
+    expect(createRes.ok()).toBe(true);
+
+    const body = await createRes.json();
+
+    const failNextRes = await request.post(`${WORKER_URL_SUBDOMAIN}/admin/test/cloudflare_email_routing/fail_next`, {
+      data: { failNext: true, action: 'disable', requestAction: 'delete_dns_record' },
+    });
+    expect(failNextRes.ok()).toBe(true);
+
+    const deleteRes = await request.delete(`${WORKER_URL_SUBDOMAIN}/api/delete_address`, {
+      headers: { Authorization: `Bearer ${body.jwt}` },
+    });
+    expect(deleteRes.ok()).toBe(false);
+    expect(await deleteRes.text()).toContain('Cloudflare Email Routing');
+
+    const calls = await listCloudflareRoutingCalls(request);
+    expect(calls.filter((call: any) => call.action === 'provision_dns')).toHaveLength(2);
+    expect(calls.some((call: any) => call.action === 'delete_dns_record')).toBe(true);
 
     const queryBody = await queryAddresses(request, body.address);
     expect(queryBody.results).toHaveLength(1);
