@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS raw_mails (
     source TEXT,
     address TEXT,
     raw TEXT,
+    raw_blob BLOB,
     metadata TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -207,6 +208,18 @@ export default {
                 CREATE INDEX IF NOT EXISTS idx_managed_random_subdomains_base_domain
                 ON managed_random_subdomains(base_domain);
             `);
+        }
+        if (version && version <= "v0.0.7") {
+            // migration to v0.0.8: add raw_blob column for gzip compressed email storage
+            const tableInfo = await c.env.DB.prepare(
+                `PRAGMA table_info(raw_mails)`
+            ).all();
+            const hasRawBlob = tableInfo.results?.some(
+                (col: any) => col.name === 'raw_blob'
+            );
+            if (!hasRawBlob) {
+                await c.env.DB.exec(`ALTER TABLE raw_mails ADD COLUMN raw_blob BLOB;`);
+            }
         }
         if (version != CONSTANTS.DB_VERSION) {
             // remove all \r and \n characters from the query string

@@ -49,7 +49,7 @@ jobs:
 
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         name: Install pnpm
         id: pnpm-install
         if: ${{ steps.preflight.outputs.ready == 'true' }}
