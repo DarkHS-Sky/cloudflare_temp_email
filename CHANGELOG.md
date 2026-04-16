@@ -6,11 +6,23 @@
   <a href="CHANGELOG_EN.md">English</a>
 </p>
 
+## v1.7.0(main)
+
+### Features
+
+### Bug Fixes
+
+- fix: |用户侧收件箱| 修复 `ENABLE_USER_DELETE_EMAIL` 关闭时用户中心仍显示删除按钮且仍可通过 `/user_api/mails/:id` 删除邮件的问题（#978）
+- fix: |Address| 创建邮箱时统一将配置的前缀转为小写，避免生成包含大写前缀的地址；历史数据需用户自行迁移为小写（#930）
+
+### Improvements
+
 ## v1.6.0(main)
 
 ### Features
 
 - feat: |Admin| IP 黑名单设置新增 **IP 白名单（严格模式）**：启用后仅允许匹配白名单的 IP 访问受限流保护的 API（创建邮箱、发送邮件、外部发送邮件、用户注册、验证码校验），其他所有 IP 一律拒绝（#920）
+- feat: |Address| 支持最大地址数量设置为 `0` 表示无限制（#968）
 
 ### Bug Fixes
 

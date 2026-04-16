@@ -6,11 +6,23 @@
   <a href="CHANGELOG_EN.md">English</a>
 </p>
 
+## v1.7.0(main)
+
+### Features
+
+### Bug Fixes
+
+- fix: |User Mailbox| Fix an issue where the user center still showed delete actions and could still delete mail via `/user_api/mails/:id` when `ENABLE_USER_DELETE_EMAIL` was disabled (#978)
+- fix: |Address| Lowercase configured prefixes when creating addresses to avoid generating mixed-case mailbox names; existing data must be migrated to lowercase manually by the user (#930)
+
+### Improvements
+
 ## v1.6.0(main)
 
 ### Features
 
 - feat: |Admin| Add **IP Whitelist (strict mode)** to IP blacklist settings: when enabled, ONLY whitelisted IPs can access rate-limited APIs (create address, send mail, external send mail, user register, verify code); all other IPs are denied (#920)
+- feat: |Address| Support setting max address count to `0` for unlimited (#968)
 
 ### Bug Fixes
 
