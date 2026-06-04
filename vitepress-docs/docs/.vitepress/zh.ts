@@ -144,6 +144,13 @@ function sidebarGuide(): DefaultTheme.SidebarItem[] {
             ]
         },
         {
+            text: '帮助',
+            collapsed: false,
+            items: [
+                { text: '常见问题 (FAQ)', link: 'common-issues' },
+            ]
+        },
+        {
             text: '通知与集成',
             collapsed: false,
             items: [
@@ -171,6 +178,7 @@ function sidebarGuide(): DefaultTheme.SidebarItem[] {
             items: [
                 { text: '新建邮箱地址 API', link: 'feature/new-address-api' },
                 { text: '查看邮件 API', link: 'feature/mail-api' },
+                { text: 'AI Agent 使用邮箱', link: 'feature/agent-email' },
                 { text: '发送邮件 API', link: 'feature/send-mail-api' },
                 { text: '删除邮箱地址 API', link: 'feature/delete-address' },
             ]
@@ -181,13 +189,6 @@ function sidebarGuide(): DefaultTheme.SidebarItem[] {
             items: [
                 { text: 'Admin 控制台', link: 'feature/admin' },
                 { text: 'Admin 用户管理', link: 'feature/admin-user-management' },
-            ]
-        },
-        {
-            text: '帮助',
-            collapsed: false,
-            items: [
-                { text: '常见问题 (FAQ)', link: 'common-issues' },
             ]
         },
         { text: '参考', base: "/zh/", link: 'reference' }

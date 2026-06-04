@@ -5,10 +5,14 @@ compatibility_flags = [ "nodejs_compat" ]
 keep_vars = true
 
 [vars]
-PREFIX = "tmp"
-DEFAULT_DOMAINS = ["test.example.com"]
-DOMAINS = ["test.example.com"]
-RANDOM_SUBDOMAIN_DOMAINS = ["test.example.com"]
+PREFIX = "TMP"
+DEFAULT_DOMAINS = []
+DOMAINS = ["TEST.EXAMPLE.COM"]
+RANDOM_SUBDOMAIN_DOMAINS = ["TEST.EXAMPLE.COM"]
+USER_ROLES = [
+  { domains = ["TEST.EXAMPLE.COM"], role = "case-role", prefix = "ROLE" },
+  { domains = [], role = "empty-role", prefix = "EMPTY" },
+]
 JWT_SECRET = "e2e-test-secret-key"
 BLACK_LIST = ""
 ENABLE_USER_CREATE_EMAIL = true
@@ -26,7 +30,7 @@ CF_EMAIL_ROUTING_ZONE_MAP = """
 {"test.example.com":"test-zone-id"}
 """
 SMTP_CONFIG = """
-{"test.example.com":{"host":"mailpit","port":1025,"secure":false}}
+{"TEST.EXAMPLE.COM":{"host":"mailpit","port":1025,"secure":false}}
 """
 
 [[kv_namespaces]]
