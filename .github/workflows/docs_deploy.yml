@@ -1,28 +1,11 @@
 name: Deploy Docs
 
 on:
-  push:
-    branches:
-      - 92easy-prod
-    paths:
-      - "vitepress-docs/**"
-      - ".github/workflows/docs_deploy.yml"
-    tags:
-      - "*"
-  workflow_run:
-    workflows: ["Tag Build CI"]
-    types:
-      - completed
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       startsWith(github.event.workflow_run.head_branch, 'v'))
     permissions:
       contents: write
     steps:
