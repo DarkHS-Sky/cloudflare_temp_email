@@ -15,11 +15,19 @@
 
 ### Bug Fixes
 
+- fix: |Frontend| Sanitize HTML announcements in both the About page and startup notification through a shared DOMPurify helper, preventing executable tags or event attributes in `ANNOUNCEMENT` from causing XSS
 - fix: |Worker| Align junk-mail checking with authentication standards: treat SPF, DKIM, and DMARC `none` plus SPF/DKIM `neutral` as absent, and ignore unregistered results and unsupported method versions; `JUNK_MAIL_FORCE_PASS_LIST` still requires an explicit supported `pass`
 - fix: |Admin| When deleting an address from the admin panel, delete its mails, sender records, sendbox and auto-reply entries before removing the address row itself; previously the address row was deleted first, so the name-based subqueries matched nothing and the mails were left orphaned in the database
 - fix: |AI Extract| Strengthen the prompt to keep original link domains from the email, preventing small models from rewriting verification-link domains (issue #1072)
 - fix: |AI Extract| Convert HTML-only mail bodies into compact readable text before sending them to Workers AI, preventing long templates from pushing verification codes past the 4000-character truncation window
 - fix: |Frontend| Add mobile Header page padding so the title and menu button no longer sit too close to the screen edge
+- fix: |IMAP Proxy| Fix IMAP `STORE` not actually marking mail as read: messages are no longer hardcoded to `\Seen`, and `SimpleMailbox` flag changes are now persisted to a local SQLite file (new `imap_flag_db_path` setting) so the read/unread state survives a client disconnect and reconnect (e.g. Thunderbird polling) instead of resetting on every new connection (issue #1074)
+- fix: |IMAP Proxy| Fix `SEARCH UNSEEN` returning every message: `SimpleMailbox.search()` now evaluates `SEEN`/`UNSEEN`/`FLAGGED`/`DELETED`/`ANSWERED`/`DRAFT` and their negations against the persisted flags, combining multiple keys with AND; search keys it cannot evaluate keep the previous behaviour of matching everything
+- fix: |IMAP Proxy| Fix fetches never marking mail as read: `BODY[...]`, `RFC822` and `RFC822.TEXT` fetches now set `\Seen` per RFC 3501, while `BODY.PEEK[...]`, `RFC822.HEADER` and metadata-only fetches (e.g. `FLAGS`) do not
+
+### Testing
+
+- test: |Worker| Add junk_mail_policy regression tests (issue #1084): `none`/`neutral` results for SPF/DKIM/DMARC are treated as the method being absent, explicit `fail` results are still rejected, and `JUNK_MAIL_FORCE_PASS_LIST` only accepts an explicit `pass`
 
 ### Improvements
 
