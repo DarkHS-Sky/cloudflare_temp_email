@@ -41,9 +41,9 @@ jobs:
           fi
           pnpm install --no-frozen-lockfile
           if [ -n "${{ secrets.FRONTEND_NAME }}" ]; then
-            pnpm exec wrangler pages deploy ../frontend/dist --project-name="${{ secrets.FRONTEND_NAME }}" --branch production
+            pnpm exec wrangler pages deploy ../frontend/dist --project-name="${{ secrets.FRONTEND_NAME }}" --branch main
           else
-            pnpm exec wrangler pages deploy ../frontend/dist --branch production
+            pnpm exec wrangler pages deploy ../frontend/dist --branch main
           fi
           echo "Deploying production for ${{ github.ref_name }}"
         env:

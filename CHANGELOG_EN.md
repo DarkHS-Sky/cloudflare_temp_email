@@ -15,7 +15,7 @@
 
 ### Bug Fixes
 
-- fix: |Deployment| Fix the Pages Functions workflow silently skipping deployment when `PAGE_TOML` is unset, default to the repository `pages/wrangler.toml` service binding, and always publish the production branch; guard admin list responses as arrays to prevent `map` errors
+- fix: |Deployment| Fix the Pages Functions workflow silently skipping deployment when `PAGE_TOML` is unset, default to the repository `pages/wrangler.toml` service binding, and always publish the Pages project's actual production branch, `main`; guard admin list responses as arrays to prevent `map` errors
 - fix: |Frontend| Sanitize HTML announcements in both the About page and startup notification through a shared DOMPurify helper, preventing executable tags or event attributes in `ANNOUNCEMENT` from causing XSS
 - fix: |Worker| Align junk-mail checking with authentication standards: treat SPF, DKIM, and DMARC `none` plus SPF/DKIM `neutral` as absent, and ignore unregistered results and unsupported method versions; `JUNK_MAIL_FORCE_PASS_LIST` still requires an explicit supported `pass`
 - fix: |Admin| When deleting an address from the admin panel, delete its mails, sender records, sendbox and auto-reply entries before removing the address row itself; previously the address row was deleted first, so the name-based subqueries matched nothing and the mails were left orphaned in the database
