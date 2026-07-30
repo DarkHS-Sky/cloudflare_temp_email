@@ -40,7 +40,11 @@ jobs:
             printf '%s\n' '${{ secrets.PAGE_TOML }}' > wrangler.toml
           fi
           pnpm install --no-frozen-lockfile
-          pnpm run deploy
+          if [ -n "${{ secrets.FRONTEND_NAME }}" ]; then
+            pnpm exec wrangler pages deploy ../frontend/dist --project-name="${{ secrets.FRONTEND_NAME }}"
+          else
+            pnpm run deploy
+          fi
           echo "Deploying production for ${{ github.ref_name }}"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
