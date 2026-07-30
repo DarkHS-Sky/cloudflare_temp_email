@@ -15,6 +15,7 @@
 
 ### Bug Fixes
 
+- fix: |部署| 修复 Pages Functions 工作流因未配置 `PAGE_TOML` 而静默跳过部署的问题，默认使用仓库内置的 `pages/wrangler.toml` 启用后端 service binding；管理员列表对异常响应增加数组兜底，避免 `map` 报错
 - fix: |Frontend| 使用共享 DOMPurify 净化逻辑处理关于页面与启动通知中的 HTML 公告，避免 `ANNOUNCEMENT` 中的可执行标签或事件属性造成 XSS
 - fix: |Worker| 按邮件认证规范修复垃圾邮件检测：SPF、DKIM、DMARC 的 `none` 及 SPF/DKIM `neutral` 按认证方法不存在处理，并忽略未注册结果和不支持的方法版本；`JUNK_MAIL_FORCE_PASS_LIST` 仍要求明确返回受支持的 `pass`
 - fix: |Admin| 管理后台删除邮箱地址时，先删除该地址的邮件、发件记录、自动回复等关联数据，最后再删除地址本身；此前地址行先被删除导致按地址名匹配的子查询查不到数据，邮件等记录被遗留在数据库中

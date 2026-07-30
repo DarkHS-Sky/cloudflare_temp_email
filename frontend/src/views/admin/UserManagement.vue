@@ -45,7 +45,7 @@ const userRolesOptions = computed(() => {
 const fetchUserRoles = async () => {
     try {
         const results = await api.fetch(`/admin/user_roles`);
-        userRoles.value = results;
+        userRoles.value = Array.isArray(results) ? results : [];
     } catch (error) {
         console.log(error)
         message.error(error.message || "error");
@@ -61,7 +61,7 @@ const fetchData = async () => {
             + `&offset=${(page.value - 1) * pageSize.value}`
             + (userQuery.value ? `&query=${userQuery.value}` : '')
         );
-        data.value = results;
+        data.value = Array.isArray(results) ? results : [];
         if (userCount > 0) {
             count.value = userCount;
         }
