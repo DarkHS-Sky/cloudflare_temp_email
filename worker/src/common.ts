@@ -2,7 +2,7 @@ import { Context } from 'hono';
 import { Jwt } from 'hono/utils/jwt'
 import { WorkerMailerOptions } from 'worker-mailer';
 
-import { getBooleanValue, getDomains, getStringArray, getStringValue, getIntValue, getUserRoles, getDefaultDomains, getJsonSetting, getAnotherWorkerList, hashPassword, getJsonObjectValue, getRandomSubdomainDomains, getDomainMapValue, normalizeDomains, trimLower } from './utils';
+import { getBooleanValue, getDomains, getStringArray, getStringValue, getIntValue, getUserRoles, getDefaultDomains, getJsonSetting, getAnotherWorkerList, hashPassword, getJsonObjectValue, getRandomSubdomainDomains, getDomainMapValue, isDomainOrSubdomain, normalizeDomains, trimLower } from './utils';
 import { unbindTelegramByAddress } from './telegram_api/common';
 import { CONSTANTS } from './constants';
 import { AddressCreationSettings, AdminWebhookSettings, ExtractResult, WebhookMail, WebhookSettings } from './models';
@@ -323,10 +323,34 @@ export function updateAddressUpdatedAt(
     c.executionCtx.waitUntil((async () => {
         try {
             await c.env.DB.prepare(
-                `UPDATE address SET updated_at = datetime('now') where name = ?`
+                `UPDATE address SET updated_at = datetime('now')`
+                + ` WHERE name = ?`
+                + ` AND (updated_at IS NULL OR updated_at < datetime('now', '-1 day'))`
             ).bind(address).run();
         } catch (e) {
-            console.warn("[updateAddressUpdatedAt] failed:", address, e);
+            const errorName = e instanceof Error ? e.name : "UnknownError";
+            console.warn("[updateAddressUpdatedAt] failed:", errorName);
+        }
+    })());
+}
+
+export function updateUserAddressesUpdatedAt(
+    c: Context<HonoCustomType>,
+    userId: number | string | undefined | null
+): void {
+    if (!userId) {
+        return;
+    }
+    c.executionCtx.waitUntil((async () => {
+        try {
+            await c.env.DB.prepare(
+                `UPDATE address SET updated_at = datetime('now')`
+                + ` WHERE id IN (SELECT address_id FROM users_address WHERE user_id = ?)`
+                + ` AND (updated_at IS NULL OR updated_at < datetime('now', '-1 day'))`
+            ).bind(userId).run();
+        } catch (e) {
+            const errorName = e instanceof Error ? e.name : "UnknownError";
+            console.warn("[updateUserAddressesUpdatedAt] failed:", errorName);
         }
     })());
 }
@@ -459,8 +483,12 @@ export const newAddress = async (
         domain = normalizeDomainValue(domain);
     }
     const { effectiveEnabled: enableSubdomainMatch } = await getAddressCreationSubdomainMatchStatus(c);
+    const allowManualSubdomain = domain
+        ? allowDomains.some((baseDomain) =>
+            allowRandomSubdomainForDomain(c, baseDomain) && isDomainOrSubdomain(domain, baseDomain))
+        : false;
     const matchedAllowDomain = domain
-        ? findMatchedAllowedDomain(domain, allowDomains, enableSubdomainMatch)
+        ? findMatchedAllowedDomain(domain, allowDomains, enableSubdomainMatch || allowManualSubdomain)
         : null;
     // check domain is valid
     if (!domain || !matchedAllowDomain) {
@@ -565,18 +593,26 @@ export const cleanup = async (
     if (!cleanType || typeof cleanDays !== 'number' || cleanDays < 0 || cleanDays > 1000) {
         throw new Error(msgs.InvalidCleanupConfigMsg)
     }
+    let cleanupBatchSize = getIntValue(c.env.CLEANUP_BATCH_SIZE, 3000);
+    if (!Number.isInteger(cleanupBatchSize) || cleanupBatchSize < 1 || cleanupBatchSize > 5000) {
+        cleanupBatchSize = 3000;
+    }
     console.log(`Cleanup ${cleanType} before ${cleanDays} days`);
     switch (cleanType) {
         case "inactiveAddress":
             await batchDeleteAddressWithData(
                 c,
-                `updated_at < datetime('now', '-${cleanDays} day')`
+                `id IN (`
+                + `SELECT id FROM address WHERE updated_at < datetime('now', '-${cleanDays} day') `
+                + `ORDER BY updated_at, id LIMIT ${cleanupBatchSize})`
             )
             break;
         case "addressCreated":
             await batchDeleteAddressWithData(
                 c,
-                `created_at < datetime('now', '-${cleanDays} day')`
+                `id IN (`
+                + `SELECT id FROM address WHERE created_at < datetime('now', '-${cleanDays} day') `
+                + `ORDER BY created_at, id LIMIT ${cleanupBatchSize})`
             )
             break;
         case "unboundAddress":
@@ -587,8 +623,13 @@ export const cleanup = async (
             break;
         case "mails":
             await c.env.DB.prepare(`
-                DELETE FROM raw_mails WHERE created_at < datetime('now', '-${cleanDays} day')`
-            ).run();
+                DELETE FROM raw_mails WHERE id IN (
+                    SELECT id FROM raw_mails
+                    WHERE created_at < datetime('now', ?)
+                    ORDER BY created_at, id
+                    LIMIT ?
+                )`
+            ).bind(`-${cleanDays} day`, cleanupBatchSize).run();
             break;
         case "mails_unknow":
             await c.env.DB.prepare(`
@@ -598,8 +639,13 @@ export const cleanup = async (
             break;
         case "sendbox":
             await c.env.DB.prepare(`
-                DELETE FROM sendbox WHERE created_at < datetime('now', '-${cleanDays} day')`
-            ).run();
+                DELETE FROM sendbox WHERE id IN (
+                    SELECT id FROM sendbox
+                    WHERE created_at < datetime('now', ?)
+                    ORDER BY created_at, id
+                    LIMIT ?
+                )`
+            ).bind(`-${cleanDays} day`, cleanupBatchSize).run();
             break;
         case "emptyAddress":
             // Delete addresses that have no emails and were created more than N days ago

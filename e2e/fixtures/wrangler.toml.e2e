@@ -7,8 +7,9 @@ keep_vars = true
 [vars]
 PREFIX = "TMP"
 DEFAULT_DOMAINS = []
-DOMAINS = ["TEST.EXAMPLE.COM"]
+DOMAINS = ["TEST.EXAMPLE.COM", "MANUAL.EXAMPLE.COM"]
 RANDOM_SUBDOMAIN_DOMAINS = ["TEST.EXAMPLE.COM"]
+CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST = true
 USER_ROLES = [
   { domains = ["TEST.EXAMPLE.COM"], role = "case-role", prefix = "ROLE" },
   { domains = [], role = "empty-role", prefix = "EMPTY" },
@@ -29,6 +30,7 @@ CF_EMAIL_ROUTING_API_TOKEN = "e2e-cloudflare-token"
 CF_EMAIL_ROUTING_ZONE_MAP = """
 {"test.example.com":"test-zone-id"}
 """
+CLEANUP_BATCH_SIZE = 10
 SMTP_CONFIG = """
 {"TEST.EXAMPLE.COM":{"host":"mailpit","port":1025,"secure":false}}
 """

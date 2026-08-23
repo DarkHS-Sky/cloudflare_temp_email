@@ -6,16 +6,64 @@
   <a href="CHANGELOG_EN.md">English</a>
 </p>
 
-## v1.10.0(main)
+## v1.12.0(main)
 
 ### Features
 
-- feat: |Frontend| Add a "Full-width mailbox list view" toggle in Appearance settings. When enabled, the mailbox shows a full-width list of subjects and body previews by default; clicking a mail expands it into the two-pane split view, clicking the same mail again returns to the list view; in multi-select mode, clicking a mail updates both its checked state and the right-side preview while disabling same-mail collapse, and the split width still follows the "Left list width in two-column mailbox view" setting. Defaults to off, preserving the original two-pane behavior
-- feat: |Frontend| Add "Body Preview Lines" in Appearance settings for the full-width mailbox list view, allowing runtime control over the body-preview clamp. It defaults to 2 lines, and 0 disables previews
+- feat: |Admin| Add D1 storage capacity details to the database page, with persistent Free and Workers Paid plan selection and a comparison between the current database size and capacity limit
 
 ### Bug Fixes
 
 - fix: |Deployment| Fix the Pages Functions workflow silently skipping deployment when `PAGE_TOML` is unset, default to the repository `pages/wrangler.toml` service binding, and always publish the Pages project's actual production branch, `main`; guard admin list responses as arrays to prevent `map` errors
+- fix: |Admin| Fix secondary tabs occasionally losing their active item, hiding content, and leaving the indicator offset after switching primary tabs
+- fix: |Send Mail| Use a consistent address/name field order and align the empty content editor caret with its placeholder
+
+### Improvements
+
+- feat: |Send Mail| Improve the information hierarchy and responsive layout of the user and Admin composers, with a content-format toolbar, draft status, bottom send-action area, and isolated HTML preview
+
+### Testing
+
+- test: |E2E| Cover the D1 database-size response, config-key isolation, and persistence of the database-page plan selection across reloads
+- fix: |E2E| Cover draft editing, content-format switching, and HTML preview in the send-mail composer
+
+## v1.11.0
+
+### Features
+
+- feat: |Frontend| Add Normal, Random, and Custom subdomain mode selection within the random-subdomain scope (issue #1108)
+
+### Bug Fixes
+
+- fix: |Frontend| Relabel mailbox settings and deletion actions as email-address operations, and clarify that send permission and balance are managed independently for the current email address
+
+### Improvements
+
+- docs: |Send Mail| Document the differences between user accounts, email addresses, and send permission, including how to request permission for the currently selected address
+
+- fix: |Worker| Throttle address-activity touches to one write per day so user settings and mailbox access do not repeatedly update recently active addresses, reducing D1 writes (issue #1103)
+
+- feat: |User| Add server-side pagination for bound addresses, with totals queried only on the first page; validate user-mail list ownership with a JOIN and delete ownership with `EXISTS` instead of loading every bound address for large users (issue #1103)
+
+- feat: |Worker| Process mail, sent-mail, and creation/activity-based address cleanup in batches of 3000 by default, configurable through `CLEANUP_BATCH_SIZE` up to 5000, reducing per-run scans and deletes (issue #1103)
+
+### Testing
+
+- fix: |E2E| Add regression coverage ensuring user settings do not rewrite recent address activity timestamps
+- fix: |E2E| Cover cleanup batch limits, continuation on later runs, preservation of recent data, and address-related data cleanup
+
+## v1.10.0
+
+### Features
+
+- feat: |Admin| Add `GET /admin/mails/:id` for administrators to fetch a single mail by ID across mailboxes, including gzip-compressed storage support (issue #1096)
+- feat: |Frontend| Add a "Full-width mailbox list view" toggle in Appearance settings. When enabled, the mailbox shows a full-width list of subjects and body previews by default; clicking a mail expands it into the two-pane split view, clicking the same mail again returns to the list view; in multi-select mode, clicking a mail updates both its checked state and the right-side preview while disabling same-mail collapse, and the split width still follows the "Left list width in two-column mailbox view" setting. Defaults to off, preserving the original two-pane behavior
+- feat: |Frontend| Add "Body Preview Lines" in Appearance settings for the full-width mailbox list view, allowing runtime control over the body-preview clamp. It defaults to 2 lines, and 0 disables previews
+- feat: |Frontend| Add an "Automatically load external images in mail body" toggle in Appearance settings. When disabled, the mail body (including fullscreen view) is run through DOMPurify and an allowlist policy: only references that can be *proven* local are kept (`cid:`, `data:image/`, `blob:` and same-origin relative paths), everything else is blocked. Elements that fetch on their own or change how relative URLs resolve — `base`, `meta`, `script`, `link`, `iframe`, `object`, `embed`, `noscript` — are removed in this mode, while `<style>` is kept with remote `url()`, `image-set()` and `@import` references substituted. A banner above the body reports how many resources were blocked and loads them for that mail on demand; defaults to on, preserving the previous behavior (issue #1073)
+
+### Bug Fixes
+
+- fix: |Frontend| Preserve external navigation links on `<a>` and `<area>` elements when automatic remote-image loading is disabled, and block remote CSS resources hidden behind escaped function or at-rule names
 - fix: |Frontend| Sanitize HTML announcements in both the About page and startup notification through a shared DOMPurify helper, preventing executable tags or event attributes in `ANNOUNCEMENT` from causing XSS
 - fix: |Worker| Align junk-mail checking with authentication standards: treat SPF, DKIM, and DMARC `none` plus SPF/DKIM `neutral` as absent, and ignore unregistered results and unsupported method versions; `JUNK_MAIL_FORCE_PASS_LIST` still requires an explicit supported `pass`
 - fix: |Admin| When deleting an address from the admin panel, delete its mails, sender records, sendbox and auto-reply entries before removing the address row itself; previously the address row was deleted first, so the name-based subqueries matched nothing and the mails were left orphaned in the database

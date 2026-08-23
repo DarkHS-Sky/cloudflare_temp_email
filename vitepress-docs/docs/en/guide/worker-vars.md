@@ -37,7 +37,7 @@
 | `DEFAULT_DOMAINS`                     | JSON      | Default domains available to users (not logged in or users without assigned roles)                                                                                                                                | `["awsl.uk", "dreamhunter2333.xyz"]`      |
 | `CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST` | Text/JSON | Whether to prioritize default domain when creating new addresses, if set to true, will use the first domain when no domain is specified, mainly for telegram bot scenarios                                        | `false`                                   |
 | `ENABLE_CREATE_ADDRESS_SUBDOMAIN_MATCH` | Text/JSON | Whether to allow create-address APIs to use base-domain suffix matching. When enabled, if `example.com` is allowed, `/api/new_address` and `/admin/new_address` can also accept `foo.example.com` or `a.b.example.com` | `true` |
-| `RANDOM_SUBDOMAIN_DOMAINS`            | JSON      | Base domains that allow optional random subdomain creation, so `name@abc.com` can become `name@<random>.abc.com`                                                                                                   | `["abc.com"]`                             |
+| `RANDOM_SUBDOMAIN_DOMAINS`            | JSON      | Base domains that allow random or manual subdomains; random mode can turn `name@abc.com` into `name@<random>.abc.com`                                                                                              | `["abc.com"]`                             |
 | `RANDOM_SUBDOMAIN_LENGTH`             | Number    | Random subdomain length, default `8`, valid range `1-63`                                                                                                                                                           | `8`                                       |
 | `DOMAIN_LABELS`                       | JSON      | For Chinese domains, you can use DOMAIN_LABELS to display Chinese names                                                                                                                                           | `["中文.awsl.uk", "dreamhunter2333.xyz"]` |
 | `ENABLE_AUTO_REPLY`                   | Text/JSON | Allow automatic email replies. Sender filter (`source_prefix`) supports three modes: empty to match all senders, prefix for `startsWith` matching, or `/regex/` syntax for regex matching (e.g. `/@example\.com$/`) | `true`                                    |
@@ -50,8 +50,8 @@
 > [!NOTE]
 > When `DEFAULT_DOMAINS` is unset or configured as an empty array, it falls back to `DOMAINS`.
 >
-> `RANDOM_SUBDOMAIN_DOMAINS` only controls automatic random subdomain generation during mailbox
-> creation. It does not create Cloudflare-side subdomain routing for you.
+> `RANDOM_SUBDOMAIN_DOMAINS` defines the base-domain scope shared by the frontend random and manual
+> subdomain modes. It does not create Cloudflare-side subdomain routing for you.
 >
 > To actually receive mail on addresses like `name@<random>.abc.com`, **you must add a wildcard
 > `*` MX record under the base domain in DNS** by copying the apex's existing MX records to
@@ -65,9 +65,8 @@
 > Subdomain addresses are usually best used for receiving only; for sending, prefer the main
 > domain.
 >
-> `ENABLE_CREATE_ADDRESS_SUBDOMAIN_MATCH` is different from random subdomain generation: it lets
-> API callers **directly specify** a subdomain such as `foo.example.com`, while random subdomain
-> generation appends one automatically during creation.
+> `ENABLE_CREATE_ADDRESS_SUBDOMAIN_MATCH` is independent from those frontend modes. It lets API
+> callers **directly specify** subdomains such as `foo.example.com` under other allowed base domains.
 >
 > `ENABLE_CREATE_ADDRESS_SUBDOMAIN_MATCH` precedence: if the env is explicitly set to `false`, the
 > feature is globally forced off; otherwise the persisted admin setting takes precedence, and the env
@@ -103,6 +102,7 @@
 | `REMOVE_EXCEED_SIZE_ATTACHMENT` | Text/JSON | If attachment exceeds 2MB, remove it, email may lose some information due to parsing                                   | `true`                     |
 | `REMOVE_ALL_ATTACHMENT`         | Text/JSON | Remove all attachments, email may lose some information due to parsing                                                 | `true`                     |
 | `ENABLE_MAIL_GZIP`             | Text/JSON | When enabled, new emails are gzip-compressed and stored in `raw_blob` column to save D1 database space. Existing plaintext `raw` data is automatically compatible for reading. **Run database migration first (`Admin -> Quick Setup -> Database -> Migrate Database` or `POST /admin/db_migration`) to ensure the `raw_blob` column exists before enabling. This feature adds compression/decompression CPU overhead, so enabling it on a paid Cloudflare Worker plan is recommended.** | `true`                     |
+| `CLEANUP_BATCH_SIZE`           | Number    | Per-run limit for mail, sent-mail, and creation/activity-based address cleanup. Defaults to `3000`, valid range `1-5000`. Smaller values reduce per-run D1 pressure; larger values clear backlogs faster | `3000` |
 
 > [!NOTE]
 > Authentication results follow their standards: SPF `none` means no usable domain or SPF record was found, and SPF `neutral` must be treated like `none`; DKIM `none` means the message was unsigned, and DKIM `neutral` is also treated as unsigned; DMARC `none` means no applicable DMARC policy was found. Unregistered results and unsupported method versions are ignored. `JUNK_MAIL_CHECK_LIST` treats these results as absent, while `JUNK_MAIL_FORCE_PASS_LIST` still requires an explicit supported `pass`
